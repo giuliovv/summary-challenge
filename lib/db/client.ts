@@ -3,25 +3,36 @@ import postgres from "postgres";
 
 import * as schema from "./schema";
 
-const databaseUrl = process.env.DATABASE_URL;
-
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required");
-}
-
 declare global {
   var dbClient: postgres.Sql | undefined;
 }
 
-const client =
-  globalThis.dbClient ??
-  postgres(databaseUrl, {
-    max: 1,
-    prepare: false,
-  });
+type Database = ReturnType<typeof drizzle<typeof schema>>;
 
-if (process.env.NODE_ENV !== "production") {
-  globalThis.dbClient = client;
+let dbInstance: Database | null = null;
+
+export function getDb() {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required");
+  }
+
+  if (dbInstance) {
+    return dbInstance;
+  }
+
+  const client =
+    globalThis.dbClient ??
+    postgres(databaseUrl, {
+      max: 1,
+      prepare: false,
+    });
+
+  if (process.env.NODE_ENV !== "production") {
+    globalThis.dbClient = client;
+  }
+
+  dbInstance = drizzle(client, { schema });
+  return dbInstance;
 }
-
-export const db = drizzle(client, { schema });

@@ -11,6 +11,17 @@ type ApiError = {
   code?: string;
 };
 
+type AnalysisResponse = {
+  analysis: {
+    url: string;
+    summary: string;
+    sentiment: "POSITIVE" | "NEUTRAL" | "NEGATIVE";
+    sentimentScore: number;
+    rationale: string;
+  };
+  cached: boolean;
+};
+
 export function NewsSearch() {
   const [query, setQuery] = useState("artificial intelligence");
   const [lastTopic, setLastTopic] = useState<string | null>(null);
@@ -19,6 +30,8 @@ export function NewsSearch() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [topN, setTopN] = useState(3);
+  const [analyzingUrls, setAnalyzingUrls] = useState<Set<string>>(new Set());
+  const [analysesByUrl, setAnalysesByUrl] = useState<Record<string, AnalysisResponse>>(Object.create(null));
 
   const canAnalyze = articles.length > 0 && !loading;
   const topNOptions = useMemo(() => [3, 5, 10].filter((value) => value <= Math.max(articles.length, 3)), [articles.length]);
@@ -63,13 +76,47 @@ export function NewsSearch() {
     }
   }
 
-  function queueSingleAnalysis(article: NewsArticle) {
-    setNotice(`Analysis endpoint is next. Selected: ${article.title}`);
+  async function analyzeSingleArticle(article: NewsArticle) {
+    setAnalyzingUrls((current) => new Set(current).add(article.url));
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch("/api/analyses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ article, topic: (lastTopic ?? query.trim()) || null }),
+      });
+      const payload = (await response.json()) as AnalysisResponse | ApiError;
+
+      if (!response.ok) {
+        throw new Error("error" in payload ? payload.error : "Analysis failed.");
+      }
+
+      const result = payload as AnalysisResponse;
+      setAnalysesByUrl((current) => ({ ...current, [article.url]: result }));
+      setNotice(result.cached ? "Loaded stored analysis for this article." : "Analysis saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Analysis failed.");
+    } finally {
+      setAnalyzingUrls((current) => {
+        const next = new Set(current);
+        next.delete(article.url);
+        return next;
+      });
+    }
   }
 
-  function queueTopicAnalysis() {
+  async function analyzeTopArticles() {
     const count = Math.min(topN, articles.length);
-    setNotice(`Analysis endpoint is next. Selected top ${count} articles for “${lastTopic ?? query.trim()}”.`);
+    const targets = articles.slice(0, count);
+
+    for (const article of targets) {
+      await analyzeSingleArticle(article);
+    }
   }
 
   return (
@@ -112,7 +159,7 @@ export function NewsSearch() {
                 </option>
               ))}
             </select>
-            <button type="button" disabled={!canAnalyze} onClick={queueTopicAnalysis}>
+            <button type="button" disabled={!canAnalyze || analyzingUrls.size > 0} onClick={analyzeTopArticles}>
               Analyze top N for this topic
             </button>
           </div>
@@ -122,7 +169,16 @@ export function NewsSearch() {
       <section className={styles.results} aria-live="polite">
         {loading ? <ResultsSkeleton /> : null}
         {!loading && !error && articles.length === 0 ? <EmptyState /> : null}
-        {!loading && articles.map((article) => <ArticleCard key={article.url} article={article} onAnalyze={queueSingleAnalysis} />)}
+        {!loading &&
+          articles.map((article) => (
+            <ArticleCard
+              key={article.url}
+              article={article}
+              analysis={analysesByUrl[article.url]}
+              analyzing={analyzingUrls.has(article.url)}
+              onAnalyze={analyzeSingleArticle}
+            />
+          ))}
       </section>
     </main>
   );
@@ -130,9 +186,13 @@ export function NewsSearch() {
 
 function ArticleCard({
   article,
+  analysis,
+  analyzing,
   onAnalyze,
 }: {
   article: NewsArticle;
+  analysis?: AnalysisResponse;
+  analyzing: boolean;
   onAnalyze: (article: NewsArticle) => void;
 }) {
   const published = new Intl.DateTimeFormat("en", {
@@ -161,10 +221,21 @@ function ArticleCard({
           <a href={article.url} target="_blank" rel="noreferrer">
             Read original
           </a>
-          <button type="button" onClick={() => onAnalyze(article)}>
-            Analyze
+          <button type="button" disabled={analyzing} onClick={() => onAnalyze(article)}>
+            {analyzing ? "Analyzing..." : analysis ? "Recheck" : "Analyze"}
           </button>
         </div>
+        {analysis ? (
+          <div className={styles.analysisBox}>
+            <div className={styles.analysisMeta}>
+              <span>{analysis.analysis.sentiment}</span>
+              <span>{analysis.analysis.sentimentScore.toFixed(2)}</span>
+              <span>{analysis.cached ? "Stored" : "New"}</span>
+            </div>
+            <p>{analysis.analysis.summary}</p>
+            <small>{analysis.analysis.rationale}</small>
+          </div>
+        ) : null}
       </div>
     </article>
   );
