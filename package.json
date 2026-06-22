@@ -12,6 +12,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@paralleldrive/cuid2": "^3.3.0",
     "drizzle-orm": "^0.45.2",
     "next": "16.2.9",
     "openai": "^6.44.0",
