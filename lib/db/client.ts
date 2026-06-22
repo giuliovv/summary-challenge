@@ -1,13 +1,17 @@
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { neon } from "@neondatabase/serverless";
+import { drizzle as drizzleNeon } from "drizzle-orm/neon-http";
+import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 
 import * as schema from "./schema";
 
 declare global {
-  var dbClient: postgres.Sql | undefined;
+  var dbPool: Pool | undefined;
 }
 
-type Database = ReturnType<typeof drizzle<typeof schema>>;
+type NeonDatabase = ReturnType<typeof drizzleNeon<typeof schema>>;
+type PgDatabase = ReturnType<typeof drizzlePg<typeof schema>>;
+type Database = NeonDatabase | PgDatabase;
 
 let dbInstance: Database | null = null;
 
@@ -22,17 +26,21 @@ export function getDb() {
     return dbInstance;
   }
 
-  const client =
-    globalThis.dbClient ??
-    postgres(databaseUrl, {
-      max: 1,
-      prepare: false,
-    });
-
-  if (process.env.NODE_ENV !== "production") {
-    globalThis.dbClient = client;
+  if (isServerlessRuntime()) {
+    dbInstance = drizzleNeon(neon(databaseUrl), { schema });
+    return dbInstance;
   }
 
-  dbInstance = drizzle(client, { schema });
+  const pool = globalThis.dbPool ?? new Pool({ connectionString: databaseUrl });
+
+  if (process.env.NODE_ENV !== "production") {
+    globalThis.dbPool = pool;
+  }
+
+  dbInstance = drizzlePg(pool, { schema });
   return dbInstance;
+}
+
+function isServerlessRuntime() {
+  return process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
 }

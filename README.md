@@ -6,7 +6,8 @@ A small Next.js app for topic-first news analysis: search recent articles, choos
 
 - **Next.js App Router**: UI plus REST handlers in one codebase for easy live coding.
 - **Server-side API proxy**: GNews and OpenAI keys stay on the server.
-- **Postgres + Drizzle**: typed schema, migrations, simple SQL-shaped queries.
+- **Neon Postgres + Drizzle**: Vercel Marketplace provisions Neon; Drizzle keeps schema/migrations typed and SQL-shaped.
+- **Driver split**: production/serverless uses `@neondatabase/serverless` + `drizzle-orm/neon-http`; local dev uses `pg` + `drizzle-orm/node-postgres` against `DATABASE_URL`.
 - **Core folders**:
   - `lib/news`: GNews client, normalized article type, Zod validation.
   - `lib/ai`: OpenAI SDK wrapper using `gpt-4.1-nano`.
@@ -45,6 +46,25 @@ Drizzle keeps the schema in TypeScript, makes migrations explicit, and still fee
 
 Batch analysis is sequential and capped at **5** articles. This keeps OpenAI spend predictable, reduces rate-limit risk, and keeps the UX responsive. GNews search is separately capped at 10 results per request.
 
+## Deploy to Vercel with Neon
+
+1. Create/import the project in Vercel.
+2. Install **Neon Postgres** from the Vercel Marketplace for this project. The integration creates the Neon project/database and injects connection env vars automatically.
+3. Add `GNEWS_API_KEY` and `OPENAI_API_KEY` in Vercel project settings.
+4. Pull env vars locally when needed:
+
+```bash
+vercel env pull .env
+```
+
+5. Run migrations against the Neon **direct/unpooled** connection string. Drizzle Kit uses node-postgres internally; set `DATABASE_URL` to the direct Neon URL while running migrations:
+
+```bash
+DATABASE_URL="postgresql://...direct-neon-url...?sslmode=require" npm run db:migrate
+```
+
+At runtime the app reads `DATABASE_URL`; in Vercel/serverless it uses Neon HTTP, locally it falls back to `pg`.
+
 ## Run locally
 
 ```bash
@@ -54,12 +74,13 @@ npm run db:migrate
 npm run dev
 ```
 
-Required env vars: `GNEWS_API_KEY`, `OPENAI_API_KEY`, `DATABASE_URL`, `DIRECT_URL`.
+Required env vars: `GNEWS_API_KEY`, `OPENAI_API_KEY`, `DATABASE_URL`.
 
 ## Checks
 
 ```bash
 npm run lint
+npm run typecheck
 npm run build
 npm test
 ```
