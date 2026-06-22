@@ -22,6 +22,14 @@ type AnalysisResponse = {
   cached: boolean;
 };
 
+type BatchAnalysisResponse = {
+  topic: string;
+  requested: number;
+  analyzed: number;
+  limit: number;
+  results: AnalysisResponse[];
+};
+
 export function NewsSearch() {
   const [query, setQuery] = useState("artificial intelligence");
   const [lastTopic, setLastTopic] = useState<string | null>(null);
@@ -113,9 +121,49 @@ export function NewsSearch() {
   async function analyzeTopArticles() {
     const count = Math.min(topN, articles.length);
     const targets = articles.slice(0, count);
+    const targetUrls = targets.map((article) => article.url);
 
-    for (const article of targets) {
-      await analyzeSingleArticle(article);
+    setAnalyzingUrls((current) => new Set([...current, ...targetUrls]));
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch("/api/analyses/batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          topic: lastTopic ?? query.trim(),
+          articles: targets,
+        }),
+      });
+      const payload = (await response.json()) as BatchAnalysisResponse | ApiError;
+
+      if (!response.ok) {
+        throw new Error("error" in payload ? payload.error : "Batch analysis failed.");
+      }
+
+      const result = payload as BatchAnalysisResponse;
+      setAnalysesByUrl((current) => {
+        const next = { ...current };
+        for (const item of result.results) {
+          next[item.analysis.url] = item;
+        }
+        return next;
+      });
+      setNotice(`Analyzed ${result.analyzed} articles for “${result.topic}” (cap ${result.limit}).`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Batch analysis failed.");
+    } finally {
+      setAnalyzingUrls((current) => {
+        const next = new Set(current);
+        for (const url of targetUrls) {
+          next.delete(url);
+        }
+        return next;
+      });
     }
   }
 
