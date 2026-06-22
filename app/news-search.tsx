@@ -1,24 +1,36 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import type { NewsArticle, NewsSearchResult } from "@/lib/news/types";
 
 import styles from "./page.module.css";
+
+type Sentiment = "POSITIVE" | "NEUTRAL" | "NEGATIVE";
 
 type ApiError = {
   error: string;
   code?: string;
 };
 
+type AnalysisRow = {
+  id: string;
+  topic: string | null;
+  source: string;
+  title: string;
+  url: string;
+  publishedAt: string;
+  imageUrl: string | null;
+  description: string | null;
+  summary: string;
+  sentiment: Sentiment;
+  sentimentScore: number;
+  rationale: string;
+  createdAt: string;
+};
+
 type AnalysisResponse = {
-  analysis: {
-    url: string;
-    summary: string;
-    sentiment: "POSITIVE" | "NEUTRAL" | "NEGATIVE";
-    sentimentScore: number;
-    rationale: string;
-  };
+  analysis: AnalysisRow;
   cached: boolean;
 };
 
@@ -30,19 +42,83 @@ type BatchAnalysisResponse = {
   results: AnalysisResponse[];
 };
 
+type TopicAggregate = {
+  topic: string;
+  count: number;
+  avgSentimentScore: number;
+  sentiments: Record<Sentiment, number>;
+};
+
 export function NewsSearch() {
   const [query, setQuery] = useState("artificial intelligence");
   const [lastTopic, setLastTopic] = useState<string | null>(null);
   const [articles, setArticles] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(false);
+  const [storedLoading, setStoredLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [topN, setTopN] = useState(3);
   const [analyzingUrls, setAnalyzingUrls] = useState<Set<string>>(new Set());
   const [analysesByUrl, setAnalysesByUrl] = useState<Record<string, AnalysisResponse>>(Object.create(null));
+  const [storedAnalyses, setStoredAnalyses] = useState<AnalysisRow[]>([]);
+  const [topics, setTopics] = useState<TopicAggregate[]>([]);
+  const [sentimentFilter, setSentimentFilter] = useState("");
+  const [topicFilter, setTopicFilter] = useState("");
 
   const canAnalyze = articles.length > 0 && !loading;
-  const topNOptions = useMemo(() => [3, 5, 10].filter((value) => value <= Math.max(articles.length, 3)), [articles.length]);
+  const topNOptions = useMemo(
+    () => [3, 5, 10].filter((value) => value <= Math.max(articles.length, 3)),
+    [articles.length],
+  );
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadInitialViews() {
+      setStoredLoading(true);
+
+      try {
+        const [analyses, topicRows] = await Promise.all([
+          fetchStoredAnalyses("", ""),
+          fetchTopicAggregates(),
+        ]);
+
+        if (!active) return;
+        setStoredAnalyses(analyses);
+        setTopics(topicRows);
+      } catch (err) {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : "Failed to load stored analyses.");
+      } finally {
+        if (active) {
+          setStoredLoading(false);
+        }
+      }
+    }
+
+    void loadInitialViews();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function refreshStoredViews(filters = { sentiment: sentimentFilter, topic: topicFilter }) {
+    setStoredLoading(true);
+
+    try {
+      const [analyses, topicRows] = await Promise.all([
+        fetchStoredAnalyses(filters.sentiment, filters.topic),
+        fetchTopicAggregates(),
+      ]);
+      setStoredAnalyses(analyses);
+      setTopics(topicRows);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load stored analyses.");
+    } finally {
+      setStoredLoading(false);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,6 +183,7 @@ export function NewsSearch() {
       const result = payload as AnalysisResponse;
       setAnalysesByUrl((current) => ({ ...current, [article.url]: result }));
       setNotice(result.cached ? "Loaded stored analysis for this article." : "Analysis saved.");
+      await refreshStoredViews();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Analysis failed.");
     } finally {
@@ -154,6 +231,7 @@ export function NewsSearch() {
         return next;
       });
       setNotice(`Analyzed ${result.analyzed} articles for “${result.topic}” (cap ${result.limit}).`);
+      await refreshStoredViews();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Batch analysis failed.");
     } finally {
@@ -165,6 +243,11 @@ export function NewsSearch() {
         return next;
       });
     }
+  }
+
+  async function applyFeedFilters(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await refreshStoredViews({ sentiment: sentimentFilter, topic: topicFilter });
   }
 
   return (
@@ -228,6 +311,19 @@ export function NewsSearch() {
             />
           ))}
       </section>
+
+      <section className={styles.viewsGrid}>
+        <TopicDashboard topics={topics} loading={storedLoading} />
+        <AnalysisFeed
+          analyses={storedAnalyses}
+          loading={storedLoading}
+          sentimentFilter={sentimentFilter}
+          topicFilter={topicFilter}
+          onSentimentChange={setSentimentFilter}
+          onTopicChange={setTopicFilter}
+          onApplyFilters={applyFeedFilters}
+        />
+      </section>
     </main>
   );
 }
@@ -243,10 +339,7 @@ function ArticleCard({
   analyzing: boolean;
   onAnalyze: (article: NewsArticle) => void;
 }) {
-  const published = new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(article.publishedAt));
+  const published = formatDate(article.publishedAt);
 
   return (
     <article className={styles.card}>
@@ -273,19 +366,134 @@ function ArticleCard({
             {analyzing ? "Analyzing..." : analysis ? "Recheck" : "Analyze"}
           </button>
         </div>
-        {analysis ? (
-          <div className={styles.analysisBox}>
-            <div className={styles.analysisMeta}>
-              <span>{analysis.analysis.sentiment}</span>
-              <span>{analysis.analysis.sentimentScore.toFixed(2)}</span>
-              <span>{analysis.cached ? "Stored" : "New"}</span>
-            </div>
-            <p>{analysis.analysis.summary}</p>
-            <small>{analysis.analysis.rationale}</small>
-          </div>
-        ) : null}
+        {analysis ? <InlineAnalysis analysis={analysis.analysis} cached={analysis.cached} /> : null}
       </div>
     </article>
+  );
+}
+
+function TopicDashboard({ topics, loading }: { topics: TopicAggregate[]; loading: boolean }) {
+  return (
+    <section className={styles.viewPanel}>
+      <div className={styles.viewHeader}>
+        <p className={styles.kicker}>Topic dashboard</p>
+        <h2>Stored sentiment by topic</h2>
+      </div>
+      {loading ? <p className={styles.muted}>Loading topics...</p> : null}
+      {!loading && topics.length === 0 ? <p className={styles.muted}>No analyzed topics yet.</p> : null}
+      <div className={styles.topicList}>
+        {topics.map((topic) => (
+          <TopicRow key={topic.topic} topic={topic} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TopicRow({ topic }: { topic: TopicAggregate }) {
+  const total = Math.max(topic.count, 1);
+  const positive = (topic.sentiments.POSITIVE / total) * 100;
+  const neutral = (topic.sentiments.NEUTRAL / total) * 100;
+  const negative = (topic.sentiments.NEGATIVE / total) * 100;
+
+  return (
+    <article className={styles.topicRow}>
+      <div className={styles.topicTitleRow}>
+        <h3>{topic.topic}</h3>
+        <span>{topic.count} articles</span>
+      </div>
+      <div className={styles.scoreLine}>Average score {topic.avgSentimentScore.toFixed(2)}</div>
+      <div className={styles.sentimentBar} aria-label={`Sentiment distribution for ${topic.topic}`}>
+        <span className={styles.barPositive} style={{ width: `${positive}%` }} />
+        <span className={styles.barNeutral} style={{ width: `${neutral}%` }} />
+        <span className={styles.barNegative} style={{ width: `${negative}%` }} />
+      </div>
+      <div className={styles.legend}>
+        <span>Positive {topic.sentiments.POSITIVE}</span>
+        <span>Neutral {topic.sentiments.NEUTRAL}</span>
+        <span>Negative {topic.sentiments.NEGATIVE}</span>
+      </div>
+    </article>
+  );
+}
+
+function AnalysisFeed({
+  analyses,
+  loading,
+  sentimentFilter,
+  topicFilter,
+  onSentimentChange,
+  onTopicChange,
+  onApplyFilters,
+}: {
+  analyses: AnalysisRow[];
+  loading: boolean;
+  sentimentFilter: string;
+  topicFilter: string;
+  onSentimentChange: (value: string) => void;
+  onTopicChange: (value: string) => void;
+  onApplyFilters: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <section className={styles.viewPanel}>
+      <div className={styles.viewHeader}>
+        <p className={styles.kicker}>Analysis feed</p>
+        <h2>Newest analyzed articles</h2>
+      </div>
+      <form className={styles.feedFilters} onSubmit={onApplyFilters}>
+        <select value={sentimentFilter} onChange={(event) => onSentimentChange(event.target.value)}>
+          <option value="">All sentiments</option>
+          <option value="POSITIVE">Positive</option>
+          <option value="NEUTRAL">Neutral</option>
+          <option value="NEGATIVE">Negative</option>
+        </select>
+        <input
+          value={topicFilter}
+          onChange={(event) => onTopicChange(event.target.value)}
+          placeholder="Filter exact topic"
+        />
+        <button type="submit">Apply</button>
+      </form>
+      {loading ? <p className={styles.muted}>Loading analyses...</p> : null}
+      {!loading && analyses.length === 0 ? <p className={styles.muted}>No stored analyses match this view.</p> : null}
+      <div className={styles.feedList}>
+        {analyses.map((analysis) => (
+          <article key={analysis.id} className={styles.feedItem}>
+            <div className={styles.feedTopline}>
+              <span>{analysis.source}</span>
+              <span>{analysis.topic ?? "No topic"}</span>
+            </div>
+            <h3>{analysis.title}</h3>
+            <SentimentBadge sentiment={analysis.sentiment} score={analysis.sentimentScore} />
+            <p>{analysis.summary}</p>
+            <div className={styles.whyBox}>
+              <strong>Why this sentiment:</strong> {analysis.rationale}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function InlineAnalysis({ analysis, cached }: { analysis: AnalysisRow; cached: boolean }) {
+  return (
+    <div className={styles.analysisBox}>
+      <div className={styles.analysisMeta}>
+        <SentimentBadge sentiment={analysis.sentiment} score={analysis.sentimentScore} />
+        <span>{cached ? "Stored" : "New"}</span>
+      </div>
+      <p>{analysis.summary}</p>
+      <small>Why this sentiment: {analysis.rationale}</small>
+    </div>
+  );
+}
+
+function SentimentBadge({ sentiment, score }: { sentiment: Sentiment; score: number }) {
+  return (
+    <span className={`${styles.sentimentBadge} ${styles[`badge${sentiment}`]}`}>
+      {sentiment} {score.toFixed(2)}
+    </span>
   );
 }
 
@@ -305,4 +513,41 @@ function ResultsSkeleton() {
       <p>Fetching from GNews through the server proxy.</p>
     </div>
   );
+}
+
+async function fetchStoredAnalyses(sentiment: string, topic: string) {
+  const params = new URLSearchParams();
+  if (sentiment) params.set("sentiment", sentiment);
+  if (topic.trim()) params.set("topic", topic.trim());
+
+  const response = await fetch(`/api/analyses?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json()) as { analyses: AnalysisRow[] } | ApiError;
+
+  if (!response.ok) {
+    throw new Error("error" in payload ? payload.error : "Failed to load analyses.");
+  }
+
+  return (payload as { analyses: AnalysisRow[] }).analyses;
+}
+
+async function fetchTopicAggregates() {
+  const response = await fetch("/api/topics", {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json()) as { topics: TopicAggregate[] } | ApiError;
+
+  if (!response.ok) {
+    throw new Error("error" in payload ? payload.error : "Failed to load topics.");
+  }
+
+  return (payload as { topics: TopicAggregate[] }).topics;
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }

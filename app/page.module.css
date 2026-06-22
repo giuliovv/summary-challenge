@@ -294,3 +294,206 @@
   color: rgba(25, 32, 24, 0.62);
   line-height: 1.45;
 }
+
+.viewsGrid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.75fr) minmax(320px, 1.25fr);
+  max-width: 1080px;
+  margin-top: 24px;
+  gap: 18px;
+  align-items: start;
+}
+
+.viewPanel {
+  border: 1px solid rgba(25, 32, 24, 0.14);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: 0 24px 80px rgba(41, 47, 35, 0.1);
+  padding: 22px;
+  backdrop-filter: blur(18px);
+}
+
+.viewHeader {
+  margin-bottom: 18px;
+}
+
+.viewHeader .kicker {
+  margin-bottom: 10px;
+}
+
+.viewHeader h2 {
+  font-size: clamp(28px, 4vw, 44px);
+  line-height: 0.96;
+  letter-spacing: -0.06em;
+}
+
+.muted {
+  color: rgba(25, 32, 24, 0.62);
+  line-height: 1.5;
+}
+
+.topicList,
+.feedList {
+  display: grid;
+  gap: 12px;
+}
+
+.topicRow,
+.feedItem {
+  border: 1px solid rgba(25, 32, 24, 0.1);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.58);
+  padding: 16px;
+}
+
+.topicTitleRow,
+.feedTopline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: rgba(25, 32, 24, 0.62);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.topicTitleRow h3,
+.feedItem h3 {
+  color: #192018;
+  letter-spacing: -0.035em;
+}
+
+.topicTitleRow h3 {
+  font-size: 19px;
+}
+
+.scoreLine {
+  margin-top: 8px;
+  color: rgba(25, 32, 24, 0.7);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.sentimentBar {
+  display: flex;
+  height: 12px;
+  overflow: hidden;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: rgba(25, 32, 24, 0.08);
+}
+
+.sentimentBar span {
+  min-width: 2px;
+}
+
+.barPositive {
+  background: #2f8f5b;
+}
+
+.barNeutral {
+  background: #d7a928;
+}
+
+.barNegative {
+  background: #c74f3f;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  color: rgba(25, 32, 24, 0.58);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.feedFilters {
+  display: grid;
+  grid-template-columns: 150px 1fr auto;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.feedFilters select,
+.feedFilters input {
+  min-width: 0;
+  border: 1px solid rgba(25, 32, 24, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
+  color: #192018;
+  font: inherit;
+  padding: 11px 12px;
+}
+
+.feedFilters button {
+  border: 0;
+  border-radius: 14px;
+  background: #192018;
+  color: #fffaf0;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  padding: 0 14px;
+}
+
+.feedItem h3 {
+  margin-top: 8px;
+  font-size: clamp(20px, 3vw, 28px);
+  line-height: 1.04;
+}
+
+.feedItem p {
+  margin-top: 12px;
+  color: rgba(25, 32, 24, 0.76);
+  line-height: 1.55;
+}
+
+.sentimentBadge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border-radius: 999px;
+  margin-top: 12px;
+  padding: 7px 10px;
+  color: #fffaf0;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.badgePOSITIVE {
+  background: #2f8f5b;
+}
+
+.badgeNEUTRAL {
+  background: #a67d11;
+}
+
+.badgeNEGATIVE {
+  background: #b64132;
+}
+
+.whyBox {
+  margin-top: 12px;
+  border-left: 4px solid rgba(25, 32, 24, 0.22);
+  color: rgba(25, 32, 24, 0.74);
+  padding-left: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .viewsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .feedFilters {
+    grid-template-columns: 1fr;
+  }
+
+  .feedFilters button {
+    min-height: 44px;
+  }
+}
