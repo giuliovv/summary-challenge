@@ -1,63 +1,39 @@
 import { NextResponse } from "next/server";
 
 import { analyzeAndStoreArticle, BATCH_ANALYSIS_LIMIT } from "@/lib/analyses/service";
+import { batchAnalysisPostSchema, formatZodError } from "@/lib/api/schemas";
 import { getDb } from "@/lib/db/client";
-import type { NewsArticle } from "@/lib/news/types";
-import { parseNewsArticle, parseTopic } from "@/lib/news/validation";
 
 export const dynamic = "force-dynamic";
 
-type BatchAnalyzeRequestBody = {
-  topic?: unknown;
-  articles?: Partial<NewsArticle>[];
-};
-
 export async function POST(request: Request) {
-  let body: BatchAnalyzeRequestBody;
+  let json: unknown;
 
   try {
-    body = (await request.json()) as BatchAnalyzeRequestBody;
+    json = await request.json();
   } catch {
-    return NextResponse.json({ error: "Request body must be valid JSON." }, { status: 400 });
+    return NextResponse.json({ error: "Request body must be valid JSON.", code: "validation_error" }, { status: 400 });
   }
 
-  const topic = parseTopic(body.topic);
+  const input = batchAnalysisPostSchema.safeParse(json);
 
-  if (!topic) {
-    return NextResponse.json({ error: "topic is required for batch analysis." }, { status: 400 });
+  if (!input.success) {
+    return NextResponse.json({ error: formatZodError(input.error), code: "validation_error" }, { status: 400 });
   }
 
-  if (!Array.isArray(body.articles)) {
-    return NextResponse.json({ error: "articles must be an array." }, { status: 400 });
-  }
-
-  const cappedArticles = body.articles.slice(0, BATCH_ANALYSIS_LIMIT);
-  const parsedArticles: NewsArticle[] = [];
-
-  for (const [index, article] of cappedArticles.entries()) {
-    const parsed = parseNewsArticle(article);
-
-    if (!parsed.ok) {
-      return NextResponse.json(
-        { error: `articles[${index}]: ${parsed.error}` },
-        { status: 400 },
-      );
-    }
-
-    parsedArticles.push(parsed.value);
-  }
+  const cappedArticles = input.data.articles.slice(0, BATCH_ANALYSIS_LIMIT);
 
   try {
     const db = getDb();
     const results = [];
 
-    for (const article of parsedArticles) {
-      results.push(await analyzeAndStoreArticle({ article, topic, db }));
+    for (const article of cappedArticles) {
+      results.push(await analyzeAndStoreArticle({ article, topic: input.data.topic, db }));
     }
 
     return NextResponse.json({
-      topic,
-      requested: body.articles.length,
+      topic: input.data.topic,
+      requested: input.data.articles.length,
       analyzed: results.length,
       limit: BATCH_ANALYSIS_LIMIT,
       results,

@@ -1,6 +1,7 @@
 import { and, isNotNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
+import { formatZodError, topicsQuerySchema } from "@/lib/api/schemas";
 import { getDb } from "@/lib/db/client";
 import { analyses } from "@/lib/db/schema";
 
@@ -8,7 +9,14 @@ export const dynamic = "force-dynamic";
 
 type Sentiment = "POSITIVE" | "NEUTRAL" | "NEGATIVE";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const input = topicsQuerySchema.safeParse(Object.fromEntries(searchParams));
+
+  if (!input.success) {
+    return NextResponse.json({ error: formatZodError(input.error), code: "validation_error" }, { status: 400 });
+  }
+
   try {
     const db = getDb();
     const whereTopicExists = and(isNotNull(analyses.topic));

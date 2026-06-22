@@ -1,31 +1,20 @@
 import { NextResponse } from "next/server";
 
+import { formatZodError, newsSearchQuerySchema } from "@/lib/api/schemas";
 import { GNewsError, searchNews } from "@/lib/news/gnews";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const query = searchParams.get("q")?.trim();
-  const maxParam = Number(searchParams.get("max") ?? 10);
-  const max = Number.isFinite(maxParam) ? Math.min(Math.max(maxParam, 1), 10) : 10;
+  const input = newsSearchQuerySchema.safeParse(Object.fromEntries(searchParams));
 
-  if (!query) {
-    return NextResponse.json(
-      { error: "Query parameter q is required." },
-      { status: 400 },
-    );
-  }
-
-  if (query.length > 120) {
-    return NextResponse.json(
-      { error: "Query must be 120 characters or fewer." },
-      { status: 400 },
-    );
+  if (!input.success) {
+    return NextResponse.json({ error: formatZodError(input.error), code: "validation_error" }, { status: 400 });
   }
 
   try {
-    const result = await searchNews({ query, max });
+    const result = await searchNews({ query: input.data.q, max: input.data.max });
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof GNewsError) {
